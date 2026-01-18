@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns:fx="http://javafx.com/fxml" fx:controller="MonitorApp" spacing="10" padding="10">
+
+    <HBox spacing="20">
+        <Label text="Total Current:" />
+        <Label fx:id="totalCurrentLabel" text="0.0 A" />
+        <Label text="Estimated Power:" />
+        <Label fx:id="powerLabel" text="0 W" />
+        <Label text="House Status:" />
+        <Label fx:id="houseStatusLabel" text="OK" style="-fx-font-weight: bold;" />
+    </HBox>
+
+    <HBox spacing="10">
+        <Label text="Main Limit (A):" />
+        <TextField fx:id="mainLimitField" text="40" prefWidth="60"/>
+        <Label text="Inverter Limit (A):" />
+        <TextField fx:id="inverterLimitField" text="15" prefWidth="60"/>
+        <Label text="Tariff (GHS/kWh):" />
+        <TextField fx:id="tariffField" text="0.85" prefWidth="80"/>
+    </HBox>
+
+    <HBox spacing="20">
+        <Label text="Session Energy:" />
+        <Label fx:id="energyLabel" text="0.00 kWh" />
+        <Label text="Estimated Cost:" />
+        <Label fx:id="costLabel" text="GHS 0.00" />
+        <Button text="Reset Session" onAction="#resetSession"/>
+    </HBox>
+
+    <Label text="Appliances" style="-fx-font-size: 16; -fx-font-weight: bold;" />
+
+    <TableView fx:id="applianceTable" editable="true">
+        <columns>
+            <TableColumn text="Appliance" prefWidth="150" />
+            <TableColumn text="Group" prefWidth="100" />
+            <TableColumn text="On/Off" prefWidth="80" />
+            <TableColumn text="Current (A)" prefWidth="100" />
+            <TableColumn text="Status" prefWidth="100" />
+        </columns>
+    </TableView>
+
+    <Label text="Alerts & Recommendations" style="-fx-font-size: 16; -fx-font-weight: bold;" />
+    <ListView fx:id="alertsList" prefHeight="150"/>
+
+</VBox>
