@@ -1,0 +1,188 @@
+import javafx.animation.AnimationTimer;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.fxml.FXML;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.CheckBoxTableCell;
+import javafx.scene.control.cell.PropertyValueFactory;
+
+import java.util.*;
+import java.util.random.RandomGenerator;
+import java.util.stream.Collectors;
+
+public class MonitorApp {
+
+    @FXML private TableView<Appliance> applianceTable;
+    @FXML private TableColumn<Appliance, String> nameCol;
+    @FXML private TableColumn<Appliance, String> groupCol;
+    @FXML private TableColumn<Appliance, Boolean> onCol;
+    @FXML private TableColumn<Appliance, Double> currentCol;
+    @FXML private TableColumn<Appliance, String> statusCol;
+
+    @FXML private Label totalCurrentLabel;
+    @FXML private Label powerLabel;
+    @FXML private Label houseStatusLabel;
+    @FXML private TextField mainLimitField;
+    @FXML private TextField inverterLimitField;
+    @FXML private TextField tariffField;
+    @FXML private Label energyLabel;
+    @FXML private Label costLabel;
+    @FXML private ListView<String> alertsList;
+
+    private ObservableList<Appliance> appliances = FXCollections.observableArrayList();
+    private double sessionEnergy = 0;
+    private long lastTime = 0;
+    private Random random = new Random();
+
+    @FXML
+    public void initialize() {
+        // Add appliances
+        appliances.addAll(
+            new Appliance("Fridge", "Kitchen", 1.0, 5.0),
+            new Appliance("Microwave", "Kitchen", 8.0, 10.0),
+            new Appliance("Kettle", "Kitchen", 10.0, 12.0),
+            new Appliance("TV", "Living Room", 0.8, 3.0),
+            new Appliance("Fan", "Living Room", 0.5, 2.0),
+            new Appliance("AC Unit", "Bedroom", 9.0, 12.0),
+            new Appliance("Iron", "Bedroom", 10.0, 12.0),
+            new Appliance("Phone Charger", "Bedroom", 0.1, 1.0)
+        );
+
+        applianceTable.setItems(appliances);
+
+        // Set up columns
+        nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
+        groupCol.setCellValueFactory(new PropertyValueFactory<>("group"));
+        onCol.setCellValueFactory(param -> {
+            Appliance a = param.getValue();
+            SimpleBooleanProperty booleanProp = new SimpleBooleanProperty(a.isOn());
+            booleanProp.addListener((observable, oldValue, newValue) -> a.setOn(newValue));
+            return booleanProp;
+        });
+        onCol.setCellFactory(CheckBoxTableCell.forTableColumn(onCol));
+        currentCol.setCellValueFactory(new PropertyValueFactory<>("currentReading"));
+        statusCol.setCellValueFactory(new PropertyValueFactory<>("status"));
+
+        // Start simulation
+        AnimationTimer timer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (lastTime == 0) lastTime = now;
+                double seconds = (now - lastTime) / 1_000_000_000.0;
+                if (seconds > 2) {
+                    updateReadings();
+                    calculateTotals();
+                    lastTime = now;
+                }
+            }
+        };
+        timer.start();
+    }
+
+    private void updateReadings() {
+        alertsList.getItems().clear();
+        Map<String, Double> groupCurrents = new HashMap<>();
+
+        for (Appliance a : appliances) {
+            if (!a.isOn()) {
+                a.setCurrentReading(0);
+                a.setStatus("OFF");
+                continue;
+            }
+
+            double base = a.getNominalCurrent() + random.nextDouble() * 1.0 - 0.5;
+
+            // Surge (10% chance)
+            if (random.nextInt(10) == 0) {
+                base += 4 + random.nextDouble() * 2;
+                alertsList.getItems().add("Surge detected on " + a.getName() + ": +" + String.format("%.1f", base - a.getPreviousReading()) + "A");
+                a.setStatus("SURGE");
+            }
+
+            // Invalid reading (5% chance)
+            if (random.nextInt(20) == 0) {
+                alertsList.getItems().add("Sensor fault on " + a.getName() + ". Reading ignored.");
+                a.setStatus("INVALID");
+                a.setCurrentReading(0);
+                continue;
+            }
+
+            // Validity check
+            if (base <= 0 || base > a.getMaxAllowed()) {
+                alertsList.getItems().add("Sensor fault on " + a.getName() + ". Reading ignored.");
+                a.setStatus("INVALID");
+                a.setCurrentReading(0);
+                continue;
+            }
+
+            a.setCurrentReading(base);
+            a.setStatus("OK");
+
+            // Add to group totals (only valid)
+            if (a.getStatus().equals("OK") || a.getStatus().equals("SURGE")) {
+                groupCurrents.merge(a.getGroup(), base, Double::sum);
+            }
+        }
+
+        // Group alerts
+        for (Map.Entry<String, Double> e : groupCurrents.entrySet()) {
+            String group = e.getKey();
+            double current = e.getValue();
+            if (current >= 10 && current <= 13) {
+                alertsList.getItems().add("High load in " + group + ". Avoid adding another high power appliance.");
+            } else if (current > 13) {
+                alertsList.getItems().add(group + " socket group overloaded. Reduce load.");
+                // Recommendations
+                List<Appliance> highInGroup = appliances.stream()
+                    .filter(ap -> ap.getGroup().equals(group) && ap.isOn())
+                    .sorted(Comparator.comparingDouble(Appliance::getCurrentReading).reversed())
+                    .limit(2)
+                    .collect(Collectors.toList());
+                highInGroup.forEach(ap -> alertsList.getItems().add("→ Turn off " + ap.getName() + " (" + String.format("%.1f", ap.getCurrentReading()) + "A)"));
+            }
+        }
+    }
+
+    private void calculateTotals() {
+        double totalCurrent = appliances.stream()
+            .filter(a -> a.getStatus().equals("OK") || a.getStatus().equals("SURGE"))
+            .mapToDouble(Appliance::getCurrentReading)
+            .sum();
+
+        totalCurrentLabel.setText(String.format("%.1f A", totalCurrent));
+        double power = totalCurrent * 230;
+        powerLabel.setText(String.format("%.0f W", power));
+
+        // Energy tracking
+        double hours = 2.0 / 3600;
+        sessionEnergy += (power / 1000) * hours;
+        energyLabel.setText(String.format("%.3f kWh", sessionEnergy));
+        double tariff = Double.parseDouble(tariffField.getText());
+        costLabel.setText("GHS " + String.format("%.2f", sessionEnergy * tariff));
+
+        // House limit
+        double activeLimit = totalCurrent > Double.parseDouble(inverterLimitField.getText()) ? 
+            Double.parseDouble(inverterLimitField.getText()) : Double.parseDouble(mainLimitField.getText());
+
+        String houseStatus = totalCurrent > activeLimit ? "DANGER" : "OK";
+        houseStatusLabel.setText(houseStatus);
+        houseStatusLabel.setStyle(houseStatus.equals("DANGER") ? "-fx-text-fill: red; -fx-font-weight: bold;" : "-fx-text-fill: green; -fx-font-weight: bold;");
+
+        if (houseStatus.equals("DANGER")) {
+            alertsList.getItems().add("Total load exceeded " + activeLimit + "A limit.");
+            List<Appliance> topLoad = appliances.stream()
+                .filter(Appliance::isOn)
+                .sorted(Comparator.comparingDouble(Appliance::getCurrentReading).reversed())
+                .limit(3)
+                .collect(Collectors.toList());
+            topLoad.forEach(ap -> alertsList.getItems().add("→ Consider turning off " + ap.getName() + " (" + String.format("%.1f", ap.getCurrentReading()) + "A)"));
+        }
+    }
+
+    @FXML
+    private void resetSession() {
+        sessionEnergy = 0;
+        energyLabel.setText("0.00 kWh");
+        costLabel.setText("GHS 0.00");
+    }
+}
